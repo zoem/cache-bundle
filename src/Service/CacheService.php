@@ -8,7 +8,7 @@
 
 namespace Aequasi\Bundle\CacheBundle\Service;
 
-use Doctrine\Common\Cache\Cache;
+use Aequasi\Bundle\CacheBundle\Common\Cache\Cache;
 
 /**
  * Class CacheService
@@ -124,7 +124,7 @@ class CacheService implements Cache
         if ($this->isLogging()) {
             $call         = $this->timeCall('fetch', array($id));
             $result       = $call->result;
-            $call->result = '<DATA>';
+            $call->result = $this->formatLogData($result);
 
             $this->calls[] = $call;
 
@@ -167,7 +167,7 @@ class CacheService implements Cache
     {
         if ($this->isLogging()) {
             $call            = $this->timeCall('save', array($id, $data, $lifeTime));
-            $call->arguments = array($id, '<DATA>', $lifeTime);
+            $call->arguments = array($id, $this->formatLogData($data), $lifeTime);
             $this->calls[]   = $call;
 
             return $call->result;
@@ -335,5 +335,95 @@ class CacheService implements Cache
     public function getHosts()
     {
         return $this->hosts;
+    }
+
+    /**
+     * Adds an entry to the cache
+     *
+     * @param string $id    The cache id.
+     * @param mixed $data   The cache entry/data.
+     * @param int $lifeTime The cache lifetime.
+     *                      If != 0, sets a specific lifetime for this cache entry (0 => infinite lifeTime).
+     *
+     * @return boolean TRUE if the entry was successfully added to the cache, FALSE when the key already exists.
+     */
+    public function add($id, $data, $lifeTime = self::NO_EXPIRE)
+    {
+        if ($this->isLogging()) {
+            $call            = $this->timeCall('add', array($id, $data, $lifeTime));
+            $call->arguments = array($id, $this->formatLogData($data), $lifeTime);
+            $this->calls[]   = $call;
+
+            return $call->result;
+        }
+
+        return $this->cache->add($id, $data, $lifeTime);
+    }
+
+    /**
+     * Fetches an entry from the cache using the anti-dog-pile algorithm
+     *
+     * @param string $id The id of the cache entry to fetch.
+     *
+     * @return mixed The cached data or FALSE, if no cache entry exists for the given id.
+     */
+    public function fetchAdp($id)
+    {
+        $data = $this->fetch($id);
+
+        if ($data === false) {
+            return false;
+        }
+
+        if (!is_array($data) || array_diff(array('_time_','_ttl_','_data_'),array_keys($data))) {
+            return false;
+        }
+
+        if ($data['_ttl_'] === self::NO_EXPIRE || ($data['_time_'] + $data['_ttl_']) > time()) {
+            return $data['_data_'];
+        }
+
+        $success = $this->add('ADP_' . $id, 1, $data['_ttl_']);
+
+        if ($success) {
+            return false;
+        }
+
+        return $data['_data_'];
+    }
+
+    /**
+     * Puts data into the cache using the anti-dog-pile algorithm
+     *
+     * @param string $id       The cache id.
+     * @param mixed  $data     The cache entry/data.
+     * @param int    $lifeTime The cache lifetime.
+     *
+     * @return boolean TRUE if the entry was successfully stored in the cache, FALSE otherwise.
+     *
+     * @throws \InvalidArgumentException if $lifeTime is set to CacheService::NO_EXPIRE
+     */
+    public function saveAdp($id, $data, $lifeTime = self::NO_CACHE)
+    {
+        // Prevent locking the cache indefinitely
+        if ($lifeTime == self::NO_EXPIRE) {
+            throw new \InvalidArgumentException(sprintf('The anti-dog-pile cache lifetime cannot be %i', self::NO_EXPIRE));
+        }
+
+        $data = array('_time_' => time(), '_ttl_' => $lifeTime, '_data_' => $data);
+
+        return $this->save($id, $data, self::NO_EXPIRE);
+    }
+
+    /**
+     * Creates a formatted string used for logging purposes
+     *
+     * @param string $data The data
+     *
+     * @return string
+     */
+    protected function formatLogData($data)
+    {
+        return sprintf('<DATA:%s>', gettype($data));
     }
 }

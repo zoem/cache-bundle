@@ -126,10 +126,12 @@ class CacheDataCollector extends DataCollector
                 } elseif ($call->name == 'contains' && $call->result === false) {
                     $statistics[$name]['reads'] += 1;
                     $statistics[$name]['misses'] += 1;
-                } elseif ($call->name == 'save') {
+                } elseif ($call->name == 'save'  && $call->result === true) {
                     $statistics[$name]['writes'] += 1;
                 } elseif ($call->name == 'delete') {
                     $statistics[$name]['deletes'] += 1;
+                } elseif ($call->name == 'add' && $call->result === true) {
+                    $statistics[$name]['writes'] += 1;
                 }
             }
             if ($statistics[$name]['reads']) {
